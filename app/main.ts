@@ -39,7 +39,19 @@ function parseValue(input: string, pos: number): { value: RespValue, next: numbe
           throw new Error("Message doesn't end with valid separator");
         }
         const value = input.substring(startPos, endPos);
-        return { value: { type: "bulk-string", value: value }, next: endPos + 2 };
+        return { value: { type: "bulk-string", value: value } satisfies RespValue, next: endPos + 2 };
+      }
+    case RespTypes.Array:
+      {
+        const arrLength = parseInt(input.substring(pos + 1, lineEnd));
+        let respArr: RespValue[] = [];
+        let next = lineEnd + 2;
+        for (let i = 0; i < arrLength; i++) {
+          let val = parseValue(input, next);
+          respArr.push(val.value);
+          next = val.next;
+        }
+        return { value: { type: "array", value: respArr } satisfies RespValue, next: next };
       }
     default:
       throw new Error("Unhandled type.");
