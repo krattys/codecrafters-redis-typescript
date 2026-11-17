@@ -8,60 +8,129 @@ const RespTypes = {
 } as const;
 
 type RespValue =
-  | { type: "simple-string"; value: string }
-  | { type: "bulk-string"; value: string | null }
-  | { type: "array"; value: RespValue[] };
+  | { type: "simple-string"; parsedData: string }
+  | { type: "bulk-string"; parsedData: string | null }
+  | { type: "array"; parsedData: RespValue[] };
 
-function parseValue(input: string, pos: number): { value: RespValue, next: number } {
+type Command = { name: "PING" } | { name: "ECHO"; args: string };
+
+function parseValue(
+  input: string,
+  pos: number,
+): { value: RespValue; next: number } {
   const respType = input[pos];
   const lineEnd = input.indexOf("\r\n", pos);
   if (lineEnd === -1) {
-    throw new Error("Incomplete RESP data")
+    throw new Error("Incomplete RESP data");
   }
   switch (respType) {
-    case RespTypes.SimpleString:
-      {
-        const value = input.substring(pos + 1, lineEnd);
-        return { value: { type: "simple-string", value: value } satisfies RespValue, next: lineEnd + 2 };
+    case RespTypes.SimpleString: {
+      const value = input.substring(pos + 1, lineEnd);
+      return {
+        value: { type: "simple-string", parsedData: value } satisfies RespValue,
+        next: lineEnd + 2,
+      };
+    }
+    case RespTypes.BulkString: {
+      const stringLength = parseInt(input.substring(pos + 1, lineEnd));
+      if (stringLength === -1) {
+        return {
+          value: { type: "bulk-string", parsedData: null },
+          next: lineEnd + 2,
+        };
       }
-    case RespTypes.BulkString:
-      {
-        const stringLength = parseInt(input.substring(pos + 1, lineEnd));
-        if (stringLength === -1) {
-          return { value: { type: "bulk-string", value: null }, next: lineEnd + 2 }
-        }
-        const startPos = lineEnd + 2;
-        const endPos = startPos + stringLength;
-        if (endPos + 1 >= input.length) {
-          throw new Error("Message is truncated and not fully formed");
-        }
-        if (input.substring(endPos, endPos + 2) !== "\r\n") {
-          throw new Error("Message doesn't end with valid separator");
-        }
-        const value = input.substring(startPos, endPos);
-        return { value: { type: "bulk-string", value: value } satisfies RespValue, next: endPos + 2 };
+      const startPos = lineEnd + 2;
+      const endPos = startPos + stringLength;
+      if (endPos + 1 >= input.length) {
+        throw new Error("Message is truncated and not fully formed");
       }
-    case RespTypes.Array:
-      {
-        const arrLength = parseInt(input.substring(pos + 1, lineEnd));
-        let respArr: RespValue[] = [];
-        let next = lineEnd + 2;
-        for (let i = 0; i < arrLength; i++) {
-          let val = parseValue(input, next);
-          respArr.push(val.value);
-          next = val.next;
-        }
-        return { value: { type: "array", value: respArr } satisfies RespValue, next: next };
+      if (input.substring(endPos, endPos + 2) !== "\r\n") {
+        throw new Error("Message doesn't end with valid separator");
       }
+      const value = input.substring(startPos, endPos);
+      return {
+        value: { type: "bulk-string", parsedData: value } satisfies RespValue,
+        next: endPos + 2,
+      };
+    }
+    case RespTypes.Array: {
+      const arrLength = parseInt(input.substring(pos + 1, lineEnd));
+      let respArr: RespValue[] = [];
+      let next = lineEnd + 2;
+      for (let i = 0; i < arrLength; i++) {
+        let val = parseValue(input, next);
+        respArr.push(val.value);
+        next = val.next;
+      }
+      return {
+        value: { type: "array", parsedData: respArr } satisfies RespValue,
+        next: next,
+      };
+    }
     default:
       throw new Error("Unhandled type.");
+  }
+}
+
+function toCommand(value: RespValue): Command {
+  switch (value.type) {
+    case "simple-string": {
+      throw new Error("Wrong data type for the message. Use arrays.");
+    }
+    case "bulk-string": {
+      throw new Error("Wrong data type for the message. Use arrays.");
+    }
+    case "array": {
+      const commandStringArr = value.parsedData.map(function (
+        el: RespValue,
+      ): string {
+        switch (el.type) {
+          case "array":
+          case "simple-string": {
+            throw new Error(
+              "Wrong data type for command string. Use bulk strings.",
+            );
+          }
+          case "bulk-string":
+            {
+              if (el.parsedData === null) {
+                throw new Error("Command or args cannot be null.");
+              }
+            }
+            return el.parsedData;
+          default:
+            throw new Error("Unmapped type.");
+        }
+      });
+
+      switch (commandStringArr[0]) {
+        case "PING": {
+          if (commandStringArr.length === 1) {
+            return { name: "PING" } satisfies Command;
+          }
+          throw new Error(`Wrong message for ${commandStringArr[0]} command.`);
+        }
+        case "ECHO": {
+          if (
+            commandStringArr.length === 2 &&
+            commandStringArr[1] !== undefined
+          ) {
+            return { name: "ECHO", args: commandStringArr[1] };
+          }
+          throw new Error(`Wrong message for ${commandStringArr[0]} command.`);
+        }
+        default: {
+          throw new Error(`Unmapped command ${commandStringArr[0]}.`);
+        }
+      }
+    }
   }
 }
 
 function respParser(data: Buffer): RespValue[] {
   let parsedArray: RespValue[] = [];
   const dataString = data.toString().split("\r\n").slice(0, -1);
-  console.log("dataString: ", dataString);
+  // console.log("dataString: ", dataString);
 
   // switch (dataString[0]) {
   //   case RespTypes.Array:
@@ -90,6 +159,8 @@ function respParser(data: Buffer): RespValue[] {
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
     const parsedArray: any[] = respParser(data);
+    const parsedValue = parseValue(data.toString(), 0);
+    toCommand(parsedValue.value);
     switch (parsedArray[0]) {
       case "ECHO":
         {
