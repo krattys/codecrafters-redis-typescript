@@ -74,16 +74,12 @@ function parseValue(
 
 function toCommand(value: RespValue): Command {
   switch (value.type) {
-    case "simple-string": {
-      throw new Error("Wrong data type for the message. Use arrays.");
-    }
+    case "simple-string":
     case "bulk-string": {
       throw new Error("Wrong data type for the message. Use arrays.");
     }
     case "array": {
-      const commandStringArr = value.parsedData.map(function (
-        el: RespValue,
-      ): string {
+      const commandStringArr = value.parsedData.map(function (el): string {
         switch (el.type) {
           case "array":
           case "simple-string": {
@@ -96,34 +92,37 @@ function toCommand(value: RespValue): Command {
               if (el.parsedData === null) {
                 throw new Error("Command or args cannot be null.");
               }
+              return el.parsedData;
             }
-            return el.parsedData;
-          default:
-            throw new Error("Unmapped type.");
         }
       });
 
-      switch (commandStringArr[0]) {
+      let [name, args, ...rest] = commandStringArr;
+      if (name === undefined) {
+        throw new Error("Give a valid command.");
+      }
+
+      name = name.toUpperCase();
+      switch (name) {
         case "PING": {
           if (commandStringArr.length === 1) {
-            return { name: "PING" } satisfies Command;
+            return { name: "PING" };
           }
-          throw new Error(`Wrong message for ${commandStringArr[0]} command.`);
+          throw new Error(`Wrong args for ${commandStringArr[0]} command.`);
         }
         case "ECHO": {
-          if (
-            commandStringArr.length === 2 &&
-            commandStringArr[1] !== undefined
-          ) {
-            return { name: "ECHO", args: commandStringArr[1] };
+          if (args !== undefined) {
+            return { name: "ECHO", args: args };
           }
-          throw new Error(`Wrong message for ${commandStringArr[0]} command.`);
+          throw new Error(`Wrong args for ${commandStringArr[0]} command.`);
         }
         default: {
           throw new Error(`Unmapped command ${commandStringArr[0]}.`);
         }
       }
     }
+    // default:
+    //   throw new Error(`Unmapped type.`);
   }
 }
 
