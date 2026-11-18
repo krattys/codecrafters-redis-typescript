@@ -158,6 +158,21 @@ function encode(value: RespValue): string {
   }
 }
 
+function execute(command: Command): RespValue {
+  switch (command.name) {
+    case "PING": {
+      return { type: "simple-string", data: "PONG" };
+    }
+    case "ECHO": {
+      return { type: "bulk-string", data: command.args };
+    }
+    default: {
+      const unmappedCommand: never = command;
+      throw new Error(`Unmapped command type ${unmappedCommand}.`);
+    }
+  }
+}
+
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
     const parsedValue = parseValue(data.toString(), 0);
