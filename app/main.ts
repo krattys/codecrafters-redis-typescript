@@ -175,27 +175,11 @@ function execute(command: Command): RespValue {
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
-    const parsedValue = parseValue(data.toString(), 0);
-    toCommand(parsedValue.value);
-    switch (parsedArray[0]) {
-      case "ECHO":
-        {
-          const response: string = `$${parsedArray[1].length}\r\n${parsedArray[1]}\r\n`;
-          connection.write(response);
-        }
-        break;
-      case "PING":
-        {
-          const response: string = `+PONG\r\n`;
-          connection.write(response);
-        }
-        break;
-      default:
-        {
-          connection.write("_\r\n");
-        }
-        break;
-    }
+    const parsedMessage = parseValue(data.toString(), 0);
+    const command = toCommand(parsedMessage.value);
+    const result = execute(command);
+    const response = encode(result);
+    connection.write(response);
   });
 });
 
