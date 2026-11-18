@@ -8,9 +8,9 @@ const RespTypes = {
 } as const;
 
 type RespValue =
-  | { type: "simple-string"; parsedData: string }
-  | { type: "bulk-string"; parsedData: string | null }
-  | { type: "array"; parsedData: RespValue[] };
+  | { type: "simple-string"; data: string }
+  | { type: "bulk-string"; data: string | null }
+  | { type: "array"; data: RespValue[] };
 
 type Command = { name: "PING" } | { name: "ECHO"; args: string };
 
@@ -27,7 +27,7 @@ function parseValue(
     case RespTypes.SimpleString: {
       const value = input.substring(pos + 1, lineEnd);
       return {
-        value: { type: "simple-string", parsedData: value } satisfies RespValue,
+        value: { type: "simple-string", data: value } satisfies RespValue,
         next: lineEnd + 2,
       };
     }
@@ -35,7 +35,7 @@ function parseValue(
       const stringLength = parseInt(input.substring(pos + 1, lineEnd));
       if (stringLength === -1) {
         return {
-          value: { type: "bulk-string", parsedData: null },
+          value: { type: "bulk-string", data: null },
           next: lineEnd + 2,
         };
       }
@@ -49,7 +49,7 @@ function parseValue(
       }
       const value = input.substring(startPos, endPos);
       return {
-        value: { type: "bulk-string", parsedData: value } satisfies RespValue,
+        value: { type: "bulk-string", data: value } satisfies RespValue,
         next: endPos + 2,
       };
     }
@@ -63,7 +63,7 @@ function parseValue(
         next = val.next;
       }
       return {
-        value: { type: "array", parsedData: respArr } satisfies RespValue,
+        value: { type: "array", data: respArr } satisfies RespValue,
         next: next,
       };
     }
@@ -80,7 +80,7 @@ function toCommand(value: RespValue): Command {
       throw new Error("Wrong data type for the message. Use arrays.");
     }
     case "array": {
-      const commandStringArr = value.parsedData.map(function (el): string {
+      const commandStringArr = value.data.map(function (el): string {
         const elementType = el.type;
         switch (elementType) {
           case "array":
@@ -90,10 +90,10 @@ function toCommand(value: RespValue): Command {
             );
           }
           case "bulk-string": {
-            if (el.parsedData === null) {
+            if (el.data === null) {
               throw new Error("Command or args cannot be null.");
             }
-            return el.parsedData;
+            return el.data;
           }
           default: {
             const unhandledType: never = elementType;
@@ -129,6 +129,31 @@ function toCommand(value: RespValue): Command {
     default: {
       const unhandledType: never = type;
       throw new Error(`Unmapped type ${unhandledType}.`);
+    }
+  }
+}
+
+function encode(value: RespValue): string {
+  switch (value.type) {
+    case "simple-string": {
+      return `+${value.data}\r\n`;
+    }
+    case "bulk-string": {
+      if (value.data === null) {
+        return `$-1\r\n`;
+      }
+      return `$${value.data.length}\r\n${value.data}\r\n`;
+    }
+    case "array": {
+      let encodedArray = `*${value.data.length}\r\n`; 
+      value.data.forEach(el => {
+        encodedArray += encode(el);
+      });
+      return encodedArray;
+    }
+    default: {
+      const unhandledType: never = value;
+      throw new Error(`Unmapped type encountered ${unhandledType}.`)
     }
   }
 }
