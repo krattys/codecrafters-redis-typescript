@@ -73,56 +73,63 @@ function parseValue(
 }
 
 function toCommand(value: RespValue): Command {
-  switch (value.type) {
+  const type = value.type;
+  switch (type) {
     case "simple-string":
     case "bulk-string": {
       throw new Error("Wrong data type for the message. Use arrays.");
     }
     case "array": {
       const commandStringArr = value.parsedData.map(function (el): string {
-        switch (el.type) {
+        const elementType = el.type;
+        switch (elementType) {
           case "array":
           case "simple-string": {
             throw new Error(
               "Wrong data type for command string. Use bulk strings.",
             );
           }
-          case "bulk-string":
-            {
-              if (el.parsedData === null) {
-                throw new Error("Command or args cannot be null.");
-              }
-              return el.parsedData;
+          case "bulk-string": {
+            if (el.parsedData === null) {
+              throw new Error("Command or args cannot be null.");
             }
+            return el.parsedData;
+          }
+          default: {
+            const unhandledType: never = elementType;
+            throw new Error(`Unhandled type ${unhandledType}`);
+          }
         }
       });
 
-      let [name, args, ...rest] = commandStringArr;
+      const [name, args, ...rest] = commandStringArr;
       if (name === undefined) {
         throw new Error("Give a valid command.");
       }
 
-      name = name.toUpperCase();
-      switch (name) {
+      const command = name.toUpperCase();
+      switch (command) {
         case "PING": {
-          if (commandStringArr.length === 1) {
+          if (args === undefined) {
             return { name: "PING" };
           }
-          throw new Error(`Wrong args for ${commandStringArr[0]} command.`);
+          throw new Error(`Wrong args for ${command} command.`);
         }
         case "ECHO": {
-          if (args !== undefined) {
-            return { name: "ECHO", args: args };
+          if (rest.length > 0 || args === undefined) {
+            throw new Error(`Wrong args for ${command} command.`)
           }
-          throw new Error(`Wrong args for ${commandStringArr[0]} command.`);
+          return { name: "ECHO", args: args };
         }
         default: {
-          throw new Error(`Unmapped command ${commandStringArr[0]}.`);
+          throw new Error(`Unmapped command ${command}.`);
         }
       }
     }
-    // default:
-    //   throw new Error(`Unmapped type.`);
+    default: {
+      const unhandledType: never = type;
+      throw new Error(`Unmapped type ${unhandledType}.`);
+    }
   }
 }
 
