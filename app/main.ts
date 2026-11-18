@@ -158,38 +158,8 @@ function encode(value: RespValue): string {
   }
 }
 
-function respParser(data: Buffer): RespValue[] {
-  let parsedArray: RespValue[] = [];
-  const dataString = data.toString().split("\r\n").slice(0, -1);
-  // console.log("dataString: ", dataString);
-
-  // switch (dataString[0]) {
-  //   case RespTypes.Array:
-  //     {
-  //       let dataArray = dataString.split("\r\n").slice(0, -1);
-  //       const arraySize: number = parseInt(dataArray[0].substring(1));
-  //       for (let i = 1; i < dataArray.length; i++) {
-  //         if (dataArray[i][0].startsWith(RespTypes.BulkString)) {
-  //           continue;
-  //         }
-  //         parsedArray.push(dataArray[i]);
-  //       }
-  //     }
-  //     break;
-  //   default:
-  //     {
-  //       console.log("Parser has not been implemented for this data type.\n");
-  //     }
-  //     break;
-  // }
-
-  return parsedArray;
-}
-
-// Uncomment the code below to pass the first stage
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
-    const parsedArray: any[] = respParser(data);
     const parsedValue = parseValue(data.toString(), 0);
     toCommand(parsedValue.value);
     switch (parsedArray[0]) {
