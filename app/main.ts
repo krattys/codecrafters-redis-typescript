@@ -10,7 +10,8 @@ const RespTypes = {
 type RespValue =
   | { type: "simple-string"; data: string }
   | { type: "bulk-string"; data: string | null }
-  | { type: "array"; data: RespValue[] };
+  | { type: "array"; data: RespValue[] }
+  | { type: "error"; data: string };
 
 type Command = { name: "PING" } | { name: "ECHO"; args: string };
 
@@ -95,6 +96,9 @@ function toCommand(value: RespValue): Command {
             }
             return el.data;
           }
+          case "error": {
+            throw new Error(el.data);
+          }
           default: {
             const unhandledType: never = elementType;
             throw new Error(`Unhandled type ${unhandledType}`);
@@ -117,7 +121,7 @@ function toCommand(value: RespValue): Command {
         }
         case "ECHO": {
           if (rest.length > 0 || args === undefined) {
-            throw new Error(`Wrong args for ${command} command.`)
+            throw new Error(`Wrong args for ${command} command.`);
           }
           return { name: "ECHO", args: args };
         }
@@ -125,6 +129,9 @@ function toCommand(value: RespValue): Command {
           throw new Error(`Unmapped command ${command}.`);
         }
       }
+    }
+    case "error": {
+      throw new Error(value.data);
     }
     default: {
       const unhandledType: never = type;
@@ -136,6 +143,11 @@ function toCommand(value: RespValue): Command {
 function encode(value: RespValue): string {
   switch (value.type) {
     case "simple-string": {
+      if (/[\r\n]/.test(value.data)) {
+        throw new Error(
+          "Data is wrong for this type. It contains newline characters.",
+        );
+      }
       return `+${value.data}\r\n`;
     }
     case "bulk-string": {
@@ -145,15 +157,23 @@ function encode(value: RespValue): string {
       return `$${value.data.length}\r\n${value.data}\r\n`;
     }
     case "array": {
-      let encodedArray = `*${value.data.length}\r\n`; 
-      value.data.forEach(el => {
+      let encodedArray = `*${value.data.length}\r\n`;
+      value.data.forEach((el) => {
         encodedArray += encode(el);
       });
       return encodedArray;
     }
+    case "error": {
+      if (/[\r\n]/.test(value.data)) {
+        throw new Error(
+          "Data is wrong for this type. It contains newline characters.",
+        );
+      }
+      return `-ERR ${value.data}\r\n`;
+    }
     default: {
       const unhandledType: never = value;
-      throw new Error(`Unmapped type encountered ${unhandledType}.`)
+      throw new Error(`Unmapped type encountered ${unhandledType}.`);
     }
   }
 }
@@ -175,11 +195,23 @@ function execute(command: Command): RespValue {
 
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
-    const parsedMessage = parseValue(data.toString(), 0);
-    const command = toCommand(parsedMessage.value);
-    const result = execute(command);
-    const response = encode(result);
-    connection.write(response);
+    try {
+      const parsedMessage = parseValue(data.toString(), 0);
+      const command = toCommand(parsedMessage.value);
+      const result = execute(command);
+      const response = encode(result);
+      connection.write(response);
+    } catch (err) {
+      if (err instanceof Error) {
+        err.message = err.message.replace(/[\r\n]/g, " ").replace(/ {2,}/g, " ");
+        const response = encode({ type: "error", data: err.message });
+        connection.write(response);
+      } else {
+        connection.write(
+          encode({ type: "error", data: "Incorrect operation." }),
+        );
+      }
+    }
   });
 });
 
