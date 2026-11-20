@@ -13,7 +13,11 @@ type RespValue =
   | { type: "array"; data: RespValue[] }
   | { type: "error"; data: string };
 
-type Command = { name: "PING" } | { name: "ECHO"; args: string };
+type Command =
+  | { name: "PING" }
+  | { name: "ECHO"; key: string }
+  | { name: "GET"; key: string }
+  | { name: "SET"; key: string; value: string };
 
 function parseValue(
   input: string,
@@ -106,7 +110,7 @@ function toCommand(value: RespValue): Command {
         }
       });
 
-      const [name, args, ...rest] = commandStringArr;
+      const [name, key, ...rest] = commandStringArr;
       if (name === undefined) {
         throw new Error("Give a valid command.");
       }
@@ -114,16 +118,37 @@ function toCommand(value: RespValue): Command {
       const command = name.toUpperCase();
       switch (command) {
         case "PING": {
-          if (args === undefined) {
-            return { name: "PING" };
+          if (key === undefined) {
+            return { name: command };
           }
           throw new Error(`Wrong args for ${command} command.`);
         }
         case "ECHO": {
-          if (rest.length > 0 || args === undefined) {
+          if (rest.length > 0 || key === undefined) {
             throw new Error(`Wrong args for ${command} command.`);
           }
-          return { name: "ECHO", args: args };
+          return { name: command, key: key };
+        }
+        case "GET": {
+          if (key === undefined || rest.length > 0) {
+            throw new Error(
+              `wrong number of arguments for '${command}' command`,
+            );
+          }
+          return { name: command, key: key };
+        }
+        case "SET": {
+          const [value, ...rest2] = rest;
+          if (
+            key === undefined ||
+            value === undefined || 
+            rest2.length > 0
+          ) {
+            throw new Error(
+              `wrong number of arguments for '${command}' command`,
+            );
+          }
+          return { name: command, key: key, value: value };
         }
         default: {
           throw new Error(`Unmapped command ${command}.`);
@@ -178,13 +203,22 @@ function encode(value: RespValue): string {
   }
 }
 
-function execute(command: Command): RespValue {
+function execute(command: Command, store: Map<string, string>): RespValue {
   switch (command.name) {
     case "PING": {
       return { type: "simple-string", data: "PONG" };
     }
     case "ECHO": {
-      return { type: "bulk-string", data: command.args };
+      return { type: "bulk-string", data: command.key };
+    }
+    case "GET": {
+      const data = store.get(command.key);
+      return { type: "bulk-string", data: data ?? null };
+    }
+    case "SET": {
+      const { key, value } = command;
+      store.set(key, value);
+      return { type: "simple-string", data: "OK" };
     }
     default: {
       const unmappedCommand: never = command;
@@ -193,17 +227,21 @@ function execute(command: Command): RespValue {
   }
 }
 
+const store = new Map<string, string>();
+
 const server: net.Server = net.createServer((connection: net.Socket) => {
   connection.on("data", (data: Buffer) => {
     try {
       const parsedMessage = parseValue(data.toString(), 0);
       const command = toCommand(parsedMessage.value);
-      const result = execute(command);
+      const result = execute(command, store);
       const response = encode(result);
       connection.write(response);
     } catch (err) {
       if (err instanceof Error) {
-        err.message = err.message.replace(/[\r\n]/g, " ").replace(/ {2,}/g, " ");
+        err.message = err.message
+          .replace(/[\r\n]/g, " ")
+          .replace(/ {2,}/g, " ");
         const response = encode({ type: "error", data: err.message });
         connection.write(response);
       } else {
